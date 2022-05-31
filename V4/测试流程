@@ -1,0 +1,57 @@
+测试流程
+1.配置虚拟ip地址;
+略
+
+2.新建数据存储根目录 STORAGE_ROOT;
+for i in `seq 1 6`; do mkdir -p /tmp/$i/objects; done
+已做略;
+
+3.新建数据存储临时目录 /tmp/temp
+for i in `seq 1 6`; do mkdir -p /tmp/$i/temp; done
+
+4.启动rabbitmq服务 并新建dataServers exchange 和 apiServers exchange;添加test用户
+docker start rabbitmq
+
+连接到容器进行操作（-t：为容器分配 一个伪终端；-i:进行交互式的标准输入） rabbitmq 是容器名
+docker exec -it rabbitmq /bin/bash
+
+新建exchange
+-- 注意要使用-u admin -p admin 用户密码模式; 否则会提示权限不够
+rabbitmqadmin -u admin -p admin declare exchange name=apiServers type=fanout
+rabbitmqadmin -u admin -p admin declare exchange name=dataServers type=fanout
+
+添加用户并赋权限
+rabbitmqctl add_user test test // 用户名 密码
+rabbitmqctl set_permissions -p / test ".*" ".*" ".*"
+
+
+4.启动ES服务并添加元数据metadata索引;
+//注意ES8后字段类型去掉了string类型,用text和keyword进行代替
+
+docker start elasticsearch-storage
+
+//新建索引metadata
+curl -H"Content-Type: application/json" 118.31.36.52:9200/metadata -XPUT -d'{"mappings":{"properties":{"name":{"type":"keyword","index":true},"version":{"type":"integer"},"size":{"type":"integer"},"hash":{"type":"keyword"}}}}'
+
+
+5.在api服务器上和data服务器上分别声明 rabbitmq服务器和ES服务器的ip地址;
+export RABBITMQ_SERVER=amqp://test:test@118.31.36.52:5672
+export ES_SERVER=118.31.36.52:9200
+
+
+6.启动api服务器
+    LISTEN_ADDRESS=10.29.2.1:12345 go run apiServer/apiServer.go &
+    LISTEN_ADDRESS=118.31.36.52:12345 go run apiServer/apiServer.go &
+
+7.启动data服务器
+   LISTEN_ADDRESS=10.29.1.1:12345 STORAGE_ROOT=/tmp/1 go run dataServer/dataServer.go &
+    LISTEN_ADDRESS=10.29.1.2:12345 STORAGE_ROOT=/tmp/2 go run dataServer/dataServer.go &
+    LISTEN_ADDRESS=10.29.1.3:12345 STORAGE_ROOT=/tmp/3 go run dataServer/dataServer.go &
+    LISTEN_ADDRESS=10.29.1.4:12345 STORAGE_ROOT=/tmp/4 go run dataServer/dataServer.go &
+    LISTEN_ADDRESS=10.29.1.5:12345 STORAGE_ROOT=/tmp/5 go run dataServer/dataServer.go &
+    LISTEN_ADDRESS=10.29.1.6:12345 STORAGE_ROOT=/tmp/6 go run dataServer/dataServer.go &
+
+8. 进行测试
+1.发送不带hash值的put
+ curl -v 10.29.2.1:12345/objects/test4 -XPUT -d"this is V4 test version1"
+ 返回
